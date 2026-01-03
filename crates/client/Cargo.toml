@@ -1,0 +1,30 @@
+[package]
+name = "tunnel-client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tunnel-client"
+path = "src/main.rs"
+
+[dependencies]
+proto = { path = "../proto" }
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+yamux = "0.13"
+futures = "0.3"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
+http-body-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+anyhow = "1"
+bytes = "1"
+
+# Phase 4: Polish
+colored = "2"
+qrcode = "0.14"

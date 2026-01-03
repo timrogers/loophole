@@ -1,0 +1,26 @@
+[server]
+domain = "localhost"
+http_port = 8090
+https_port = 8443
+control_path = "/_tunnel/connect"
+
+[tokens]
+"tk_test123" = 5
+"tk_unlimited" = 0
+
+[limits]
+request_timeout_secs = 30
+max_request_body_bytes = 10485760
+idle_tunnel_timeout_secs = 3600
+
+# Uncomment to enable admin API
+# [admin]
+# enabled = true
+# token = "admin_secret_token"
+
+# Uncomment to enable ACME/TLS support
+# [acme]
+# email = "admin@example.com"
+# directory = "https://acme-v02.api.letsencrypt.org/directory"
+# certs_dir = "/var/lib/loophole/certs"
+# staging = false  # Set to true for Let's Encrypt staging

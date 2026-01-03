@@ -1,0 +1,44 @@
+[package]
+name = "tunnel-server"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "tunnel-server"
+path = "src/main.rs"
+
+[dependencies]
+proto = { path = "../proto" }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.7", features = ["ws"] }
+hyper = { version = "1", features = ["server", "http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
+tokio-tungstenite = "0.24"
+yamux = "0.13"
+futures = "0.3"
+dashmap = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+thiserror = "1"
+anyhow = "1"
+bytes = "1"
+http-body-util = "0.1"
+tower = "0.5"
+
+# TLS and ACME dependencies (Phase 2)
+instant-acme = "0.7"
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+pem = "3"
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "tls12", "ring"] }
+webpki-roots = "0.26"
+
+# Phase 3: Production hardening
+uuid = { version = "1", features = ["v4"] }
