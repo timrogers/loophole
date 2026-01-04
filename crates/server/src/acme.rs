@@ -217,7 +217,8 @@ impl AcmeClient {
                     let key_auth = order.key_authorization(challenge);
                     let token = &challenge.token;
 
-                    debug!("Setting HTTP-01 challenge token: {}", token);
+                    info!("Setting HTTP-01 challenge token: {} for domain: {}", token, domain);
+                    info!("Challenge URL that Let's Encrypt will request: http://{}/.well-known/acme-challenge/{}", domain, token);
                     self.challenge_store.set(token, key_auth.as_str());
 
                     // Notify ACME server that challenge is ready
@@ -276,12 +277,20 @@ impl AcmeClient {
             tokio::time::sleep(Duration::from_secs(2)).await;
             order.refresh().await.context("Failed to refresh order")?;
 
-            match order.state().status {
+            let state = order.state();
+            match state.status {
                 OrderStatus::Ready | OrderStatus::Valid => {
                     debug!("Order is ready");
                     return Ok(());
                 }
                 OrderStatus::Invalid => {
+                    // Log authorization details to help diagnose the failure
+                    error!("Order became invalid. This usually means the ACME HTTP-01 challenge failed.");
+                    error!("Common causes:");
+                    error!("  1. Let's Encrypt cannot reach your server on port 80");
+                    error!("  2. DNS for the domain does not point to this server");
+                    error!("  3. A firewall is blocking incoming HTTP connections");
+                    error!("Note: Let's Encrypt HTTP-01 challenges MUST be served on port 80");
                     return Err(anyhow::anyhow!("Order became invalid"));
                 }
                 OrderStatus::Pending | OrderStatus::Processing => {

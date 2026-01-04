@@ -70,9 +70,9 @@ pub fn create_acme_router(
             }
         }
         
+        // Use fallback instead of wildcard route to ensure specific routes take precedence
         router
-            .route("/*path", any(redirect_to_https))
-            .route("/", any(redirect_to_https))
+            .fallback(redirect_to_https)
             .layer(Extension(challenge_store))
             .with_state(state)
     } else {
@@ -105,15 +105,15 @@ async fn handle_acme_challenge(
     Path(token): Path<String>,
     Extension(challenge_store): Extension<Arc<ChallengeStore>>,
 ) -> Response {
-    debug!("ACME challenge request for token: {}", token);
+    info!("ACME challenge request received for token: {}", token);
 
     match challenge_store.get(&token) {
         Some(key_auth) => {
-            info!("Responding to ACME challenge for token: {}", token);
+            info!("Responding to ACME challenge for token: {} with key_auth length: {}", token, key_auth.len());
             (StatusCode::OK, key_auth).into_response()
         }
         None => {
-            debug!("ACME challenge token not found: {}", token);
+            error!("ACME challenge token NOT FOUND in store: {}", token);
             (StatusCode::NOT_FOUND, "Challenge not found").into_response()
         }
     }
@@ -124,11 +124,17 @@ async fn redirect_to_https(
     State(state): State<Arc<ServerState>>,
     req: Request<Body>,
 ) -> Response {
+    let path = req.uri().path();
     let host = req
         .headers()
         .get("host")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
+
+    // Log if this is an ACME challenge that shouldn't have reached here
+    if path.starts_with("/.well-known/acme-challenge/") {
+        error!("ACME challenge request incorrectly routed to redirect handler! Path: {}, Host: {}", path, host);
+    }
 
     // Remove port from host if present
     let host_without_port = host.split(':').next().unwrap_or(host);
