@@ -217,8 +217,7 @@ impl AcmeClient {
                     let key_auth = order.key_authorization(challenge);
                     let token = &challenge.token;
 
-                    info!("Setting HTTP-01 challenge token: {} for domain: {}", token, domain);
-                    info!("Challenge URL that Let's Encrypt will request: http://{}/.well-known/acme-challenge/{}", domain, token);
+                    debug!("Setting HTTP-01 challenge token: {} for domain: {}", token, domain);
                     self.challenge_store.set(token, key_auth.as_str());
 
                     // Notify ACME server that challenge is ready

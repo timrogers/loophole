@@ -14,8 +14,8 @@ pub async fn proxy_request(
     timeout: Duration,
     is_https: bool,
     max_body_bytes: usize,
-    request_id: &str,
 ) -> Result<hyper::Response<Full<Bytes>>> {
+    let request_id = uuid::Uuid::new_v4().to_string();
     tunnel.increment_requests();
 
     // Convert the request to raw HTTP bytes
@@ -100,7 +100,7 @@ pub async fn proxy_request(
     debug!(request_id = %request_id, "Received {} bytes from tunnel", response_bytes.len());
 
     // Parse HTTP response and add request ID header
-    parse_http_response(&response_bytes, request_id)
+    parse_http_response(&response_bytes, &request_id)
 }
 
 fn parse_http_response(data: &[u8], request_id: &str) -> Result<hyper::Response<Full<Bytes>>> {

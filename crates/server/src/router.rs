@@ -12,7 +12,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
-use uuid::Uuid;
 
 use crate::acme::ChallengeStore;
 use crate::config::Config;
@@ -50,73 +49,54 @@ pub fn create_acme_router(
     challenge_store: Arc<ChallengeStore>,
     has_https: bool,
 ) -> Router {
-    if has_https {
-        // HTTPS mode: redirect everything to HTTPS (ACME challenges handled in redirect_to_https)
-        let control_path = state.config.server.control_path.clone();
-        let mut router = Router::new()
-            // Allow WebSocket connections on the control path (for tunnel registration)
-            .route(&control_path, any(handle_request));
-        
-        // Add admin routes if enabled
-        if let Some(ref admin) = state.config.admin {
-            if admin.enabled {
-                router = router
-                    .route("/_admin/tunnels", get(list_tunnels))
-                    .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
-            }
+    let control_path = state.config.server.control_path.clone();
+    let mut router = Router::new()
+        .route(&control_path, any(handle_request));
+    
+    // Add admin routes if enabled
+    if let Some(ref admin) = state.config.admin {
+        if admin.enabled {
+            router = router
+                .route("/_admin/tunnels", get(list_tunnels))
+                .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
         }
-        
-        // Fallback handles both ACME challenges and HTTPS redirects
+    }
+    
+    if has_https {
+        // HTTPS mode: ACME challenges served directly, everything else redirected
         router
             .fallback(redirect_to_https)
             .layer(Extension(challenge_store))
             .with_state(state)
     } else {
-        // No HTTPS, serve tunnel traffic on HTTP with ACME challenge support
-        let acme_router = Router::new()
-            .route(
-                "/acme-challenge/{token}",
-                get(handle_acme_challenge),
-            )
-            .layer(Extension(challenge_store.clone()));
-
-        let mut router = Router::new()
-            .nest("/.well-known", acme_router);
-        
-        // Add admin routes if enabled
-        if let Some(ref admin) = state.config.admin {
-            if admin.enabled {
-                router = router
-                    .route("/_admin/tunnels", get(list_tunnels))
-                    .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
-            }
-        }
-        
+        // HTTP-only mode: serve tunnel traffic directly
         router
-            .route("/*path", any(handle_request))
-            .route("/", any(handle_request))
+            .fallback(handle_request)
             .layer(Extension(challenge_store))
             .with_state(state)
     }
 }
 
-/// Handle ACME HTTP-01 challenge requests
-async fn handle_acme_challenge(
-    Path(token): Path<String>,
-    Extension(challenge_store): Extension<Arc<ChallengeStore>>,
-) -> Response {
-    info!("ACME challenge request received for token: {}", token);
-
-    match challenge_store.get(&token) {
-        Some(key_auth) => {
-            info!("Responding to ACME challenge for token: {} with key_auth length: {}", token, key_auth.len());
-            (StatusCode::OK, key_auth).into_response()
-        }
-        None => {
-            error!("ACME challenge token NOT FOUND in store: {}", token);
-            (StatusCode::NOT_FOUND, "Challenge not found").into_response()
-        }
-    }
+/// Try to handle an ACME HTTP-01 challenge request, returns None if not an ACME request
+fn try_handle_acme_challenge(path: &str, host: &str, challenge_store: &ChallengeStore) -> Option<Response> {
+    let token = path.strip_prefix("/.well-known/acme-challenge/")?;
+    let start = std::time::Instant::now();
+    
+    let (status, response) = match challenge_store.get(token) {
+        Some(key_auth) => (StatusCode::OK, (StatusCode::OK, key_auth).into_response()),
+        None => (StatusCode::NOT_FOUND, (StatusCode::NOT_FOUND, "Challenge not found").into_response()),
+    };
+    
+    let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+    info!(
+        host = %host,
+        path = %path,
+        status = %status.as_u16(),
+        latency_ms = format!("{:.2}", latency_ms),
+        "ACME challenge"
+    );
+    
+    Some(response)
 }
 
 /// Redirect HTTP to HTTPS (but serve ACME challenges directly)
@@ -133,18 +113,8 @@ async fn redirect_to_https(
         .unwrap_or("");
 
     // Handle ACME challenges directly - don't redirect these
-    if let Some(token) = path.strip_prefix("/.well-known/acme-challenge/") {
-        info!("ACME challenge request received for token: {}", token);
-        return match challenge_store.get(token) {
-            Some(key_auth) => {
-                info!("Responding to ACME challenge for token: {} with key_auth length: {}", token, key_auth.len());
-                (StatusCode::OK, key_auth).into_response()
-            }
-            None => {
-                error!("ACME challenge token NOT FOUND in store: {}", token);
-                (StatusCode::NOT_FOUND, "Challenge not found").into_response()
-            }
-        };
+    if let Some(response) = try_handle_acme_challenge(path, host, &challenge_store) {
+        return response;
     }
 
     // Remove port from host if present
@@ -175,15 +145,15 @@ async fn handle_request(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     req: Request<Body>,
 ) -> Response {
-    let request_id = Uuid::new_v4().to_string();
-    let path = req.uri().path();
+    let start = std::time::Instant::now();
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
     let host = req
         .headers()
         .get("host")
         .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-
-    debug!(request_id = %request_id, "Request: {} {} from {}", req.method(), path, host);
+        .unwrap_or("")
+        .to_string();
 
     // Check if this is a WebSocket upgrade request to the control path
     if path == state.config.server.control_path {
@@ -195,10 +165,18 @@ async fn handle_request(
     }
 
     // Extract subdomain from Host header
-    let subdomain = match extract_subdomain(host, &state.config.server.domain) {
+    let subdomain = match extract_subdomain(&host, &state.config.server.domain) {
         Some(s) => s,
         None => {
-            debug!(request_id = %request_id, "No subdomain found in host: {}", host);
+            let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+            info!(
+                method = %method,
+                host = %host,
+                path = %path,
+                status = 404,
+                latency_ms = format!("{:.2}", latency_ms),
+                "Request to unknown subdomain"
+            );
             return (StatusCode::NOT_FOUND, "Unknown subdomain").into_response();
         }
     };
@@ -207,7 +185,16 @@ async fn handle_request(
     let tunnel = match state.registry.get(&subdomain) {
         Some(t) => t,
         None => {
-            debug!(request_id = %request_id, "Tunnel not found for subdomain: {}", subdomain);
+            let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+            info!(
+                method = %method,
+                host = %host,
+                path = %path,
+                subdomain = %subdomain,
+                status = 404,
+                latency_ms = format!("{:.2}", latency_ms),
+                "Tunnel not found"
+            );
             return (StatusCode::NOT_FOUND, "Tunnel not found").into_response();
         }
     };
@@ -219,13 +206,37 @@ async fn handle_request(
     let timeout = Duration::from_secs(state.config.limits.request_timeout_secs);
     let max_body_bytes = state.config.limits.max_request_body_bytes;
     
-    match proxy_request(tunnel, req, addr.ip(), timeout, is_https, max_body_bytes, &request_id).await {
+    let response = match proxy_request(tunnel, req, addr.ip(), timeout, is_https, max_body_bytes).await {
         Ok(response) => response.into_response(),
         Err(e) => {
-            error!(request_id = %request_id, "Proxy error: {}", e);
-            (StatusCode::BAD_GATEWAY, "Proxy error").into_response()
+            let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+            info!(
+                method = %method,
+                host = %host,
+                path = %path,
+                subdomain = %subdomain,
+                status = 502,
+                latency_ms = format!("{:.2}", latency_ms),
+                error = %e,
+                "Proxy error"
+            );
+            return (StatusCode::BAD_GATEWAY, "Proxy error").into_response();
         }
-    }
+    };
+
+    let status = response.status();
+    let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
+    info!(
+        method = %method,
+        host = %host,
+        path = %path,
+        subdomain = %subdomain,
+        status = %status.as_u16(),
+        latency_ms = format!("{:.2}", latency_ms),
+        "Proxied request"
+    );
+
+    response
 }
 
 fn extract_subdomain<'a>(host: &'a str, domain: &str) -> Option<String> {
