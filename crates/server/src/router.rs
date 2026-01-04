@@ -50,20 +50,10 @@ pub fn create_acme_router(
     challenge_store: Arc<ChallengeStore>,
     has_https: bool,
 ) -> Router {
-    // Create ACME challenge handler as a nested router under /.well-known
-    let well_known_router = Router::new()
-        .route(
-            "/acme-challenge/{token}",
-            get(handle_acme_challenge),
-        )
-        .layer(Extension(challenge_store.clone()));
-
     if has_https {
-        // HTTPS mode: serve ACME challenges, allow control path, redirect everything else
+        // HTTPS mode: redirect everything to HTTPS (ACME challenges handled in redirect_to_https)
         let control_path = state.config.server.control_path.clone();
         let mut router = Router::new()
-            // Nest the well-known router
-            .nest("/.well-known", well_known_router)
             // Allow WebSocket connections on the control path (for tunnel registration)
             .route(&control_path, any(handle_request));
         
@@ -76,15 +66,22 @@ pub fn create_acme_router(
             }
         }
         
-        // Use fallback for everything else - redirect to HTTPS
+        // Fallback handles both ACME challenges and HTTPS redirects
         router
             .fallback(redirect_to_https)
             .layer(Extension(challenge_store))
             .with_state(state)
     } else {
         // No HTTPS, serve tunnel traffic on HTTP with ACME challenge support
+        let acme_router = Router::new()
+            .route(
+                "/acme-challenge/{token}",
+                get(handle_acme_challenge),
+            )
+            .layer(Extension(challenge_store.clone()));
+
         let mut router = Router::new()
-            .nest("/.well-known", well_known_router);
+            .nest("/.well-known", acme_router);
         
         // Add admin routes if enabled
         if let Some(ref admin) = state.config.admin {
@@ -122,9 +119,10 @@ async fn handle_acme_challenge(
     }
 }
 
-/// Redirect HTTP to HTTPS
+/// Redirect HTTP to HTTPS (but serve ACME challenges directly)
 async fn redirect_to_https(
     State(state): State<Arc<ServerState>>,
+    Extension(challenge_store): Extension<Arc<ChallengeStore>>,
     req: Request<Body>,
 ) -> Response {
     let path = req.uri().path();
@@ -134,9 +132,19 @@ async fn redirect_to_https(
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
 
-    // Log if this is an ACME challenge that shouldn't have reached here
-    if path.starts_with("/.well-known/acme-challenge/") {
-        error!("ACME challenge request incorrectly routed to redirect handler! Path: {}, Host: {}", path, host);
+    // Handle ACME challenges directly - don't redirect these
+    if let Some(token) = path.strip_prefix("/.well-known/acme-challenge/") {
+        info!("ACME challenge request received for token: {}", token);
+        return match challenge_store.get(token) {
+            Some(key_auth) => {
+                info!("Responding to ACME challenge for token: {} with key_auth length: {}", token, key_auth.len());
+                (StatusCode::OK, key_auth).into_response()
+            }
+            None => {
+                error!("ACME challenge token NOT FOUND in store: {}", token);
+                (StatusCode::NOT_FOUND, "Challenge not found").into_response()
+            }
+        };
     }
 
     // Remove port from host if present
