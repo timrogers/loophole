@@ -50,10 +50,10 @@ pub fn create_acme_router(
     challenge_store: Arc<ChallengeStore>,
     has_https: bool,
 ) -> Router {
-    // Create ACME challenge handler as a nested router with its own layer
-    let acme_router = Router::new()
+    // Create ACME challenge handler as a nested router under /.well-known
+    let well_known_router = Router::new()
         .route(
-            "/.well-known/acme-challenge/{token}",
+            "/acme-challenge/{token}",
             get(handle_acme_challenge),
         )
         .layer(Extension(challenge_store.clone()));
@@ -62,8 +62,8 @@ pub fn create_acme_router(
         // HTTPS mode: serve ACME challenges, allow control path, redirect everything else
         let control_path = state.config.server.control_path.clone();
         let mut router = Router::new()
-            // Merge the ACME router first
-            .merge(acme_router)
+            // Nest the well-known router
+            .nest("/.well-known", well_known_router)
             // Allow WebSocket connections on the control path (for tunnel registration)
             .route(&control_path, any(handle_request));
         
@@ -84,7 +84,7 @@ pub fn create_acme_router(
     } else {
         // No HTTPS, serve tunnel traffic on HTTP with ACME challenge support
         let mut router = Router::new()
-            .merge(acme_router);
+            .nest("/.well-known", well_known_router);
         
         // Add admin routes if enabled
         if let Some(ref admin) = state.config.admin {
