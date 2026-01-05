@@ -32,7 +32,7 @@ axum = { version = "0.7", features = ["ws"] }
 hyper = { version = "1", features = ["server", "http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
 http-body-util = "0.1"
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 tower = "0.5"
 
 # Multiplexing

@@ -32,14 +32,22 @@ impl ChallengeStore {
     }
 
     pub fn set(&self, token: &str, key_auth: &str) {
+        info!("ACME: Setting challenge token {} (key_auth length: {})", token, key_auth.len());
         self.tokens.insert(token.to_string(), key_auth.to_string());
     }
 
     pub fn get(&self, token: &str) -> Option<String> {
-        self.tokens.get(token).map(|v| v.clone())
+        let result = self.tokens.get(token).map(|v| v.clone());
+        if result.is_some() {
+            debug!("ACME: Challenge token {} found", token);
+        } else {
+            warn!("ACME: Challenge token {} NOT found (available tokens: {})", token, self.tokens.len());
+        }
+        result
     }
 
     pub fn remove(&self, token: &str) {
+        debug!("ACME: Removing challenge token {}", token);
         self.tokens.remove(token);
     }
 }
@@ -217,6 +225,8 @@ impl AcmeClient {
                     let key_auth = order.key_authorization(challenge);
                     let token = &challenge.token;
 
+                    info!("ACME: HTTP-01 challenge for {}", domain);
+                    info!("ACME: Let's Encrypt will request: http://{}/.well-known/acme-challenge/{}", domain, token);
                     debug!("Setting HTTP-01 challenge token: {} for domain: {}", token, domain);
                     self.challenge_store.set(token, key_auth.as_str());
 
