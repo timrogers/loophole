@@ -9,7 +9,7 @@ use std::task::{Context, Poll};
 use tokio_tungstenite::tungstenite::Message;
 use yamux::{Connection, Mode};
 
-use crate::forwarder::handle_tunnel_stream;
+use super::forwarder::handle_tunnel_stream;
 
 /// Wrapper to make WebSocket stream implement futures AsyncRead + AsyncWrite
 pub struct WsCompat<S> {

@@ -4,7 +4,6 @@ mod reconnect;
 mod tunnel;
 
 use anyhow::Result;
-use clap::Parser;
 use colored::Colorize;
 use std::net::SocketAddr;
 use tracing::Level;
@@ -13,73 +12,49 @@ use tracing_subscriber::FmtSubscriber;
 use client::TunnelClient;
 use reconnect::ReconnectStrategy;
 
-#[derive(Parser)]
-#[command(name = "tunnel-client")]
-#[command(about = "Connect to a tunnel server and expose a local service")]
-struct Args {
-    /// Tunnel server address (e.g., localhost:8080)
-    #[arg(long)]
-    server: String,
+use crate::client_config::ClientConfig;
 
-    /// Authentication token
-    #[arg(long)]
-    token: String,
-
-    /// Subdomain to register
-    #[arg(long)]
-    subdomain: String,
-
-    /// Local port to forward to
-    #[arg(long, default_value = "3000")]
-    port: u16,
-
-    /// Local host to forward to
-    #[arg(long, default_value = "127.0.0.1")]
-    host: String,
-
-    /// Override Host header for local requests
-    #[arg(long)]
-    local_host: Option<String>,
-
-    /// Maximum number of reconnection attempts (0 = unlimited)
-    #[arg(long, default_value = "0")]
-    max_retries: u32,
-
-    /// Timeout for forwarding requests to local server (seconds)
-    #[arg(long, default_value = "30")]
-    forward_timeout: u64,
-
-    /// Log level
-    #[arg(long, default_value = "info")]
-    log_level: String,
-
-    /// Suppress request logging output
-    #[arg(long)]
-    quiet: bool,
-
-    /// Show QR code for tunnel URL
-    #[arg(long)]
-    qr: bool,
+fn generate_subdomain() -> String {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let adjectives = ["quick", "bright", "calm", "eager", "fancy", "gentle", "happy", "jolly", "kind", "lively"];
+    let nouns = ["fox", "owl", "bear", "wolf", "deer", "hawk", "lynx", "seal", "duck", "frog"];
+    let adj = adjectives[rng.random_range(0..adjectives.len())];
+    let noun = nouns[rng.random_range(0..nouns.len())];
+    let num: u16 = rng.random_range(100..1000);
+    format!("{}-{}-{}", adj, noun, num)
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Args::parse();
-
-    // Initialize logging
-    let level = match args.log_level.to_lowercase().as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => Level::INFO,
+pub async fn run(
+    server: Option<String>,
+    token: Option<String>,
+    subdomain: Option<String>,
+    host: String,
+    port: u16,
+    local_host: Option<String>,
+    max_retries: u32,
+    forward_timeout_secs: u64,
+    log_level: Level,
+    quiet: bool,
+    show_qr: bool,
+) -> Result<()> {
+    // Load from config if not provided
+    let (server, token) = match (server, token) {
+        (Some(s), Some(t)) => (s, t),
+        (s, t) => {
+            let config = ClientConfig::load()?
+                .ok_or_else(|| anyhow::anyhow!("Not logged in. Run 'loophole login' first, or provide --server and --token."))?;
+            (s.unwrap_or(config.server), t.unwrap_or(config.token))
+        }
     };
 
-    let subscriber = FmtSubscriber::builder().with_max_level(level).finish();
+    // Generate subdomain if not provided
+    let subdomain = subdomain.unwrap_or_else(generate_subdomain);
+
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let local_addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
+    let local_addr: SocketAddr = format!("{}:{}", host, port).parse()?;
     println!(
         "{} Forwarding to {}",
         "→".cyan(),
@@ -87,10 +62,7 @@ async fn main() -> Result<()> {
     );
 
     let mut reconnect = ReconnectStrategy::new();
-    let max_retries = args.max_retries;
-    let forward_timeout = std::time::Duration::from_secs(args.forward_timeout);
-    let quiet = args.quiet;
-    let show_qr = args.qr;
+    let forward_timeout = std::time::Duration::from_secs(forward_timeout_secs);
 
     loop {
         // Check if we've exceeded max retries
@@ -103,18 +75,14 @@ async fn main() -> Result<()> {
             return Err(anyhow::anyhow!("Maximum reconnection attempts exceeded"));
         }
 
-        let client = TunnelClient::new(
-            args.server.clone(),
-            args.token.clone(),
-            args.subdomain.clone(),
-        );
+        let client = TunnelClient::new(server.clone(), token.clone(), subdomain.clone());
 
         match client.connect().await {
             Ok(conn) => {
                 reconnect.reset();
-                
+
                 // Print success message
-                println!("{} Connected to {}", "✓".green(), args.server.green());
+                println!("{} Connected to {}", "✓".green(), server.green());
                 println!(
                     "{} Tunnel URL: {}",
                     "✓".green(),
@@ -131,7 +99,10 @@ async fn main() -> Result<()> {
                 let ws = conn.write.reunite(conn.read).expect("reunite failed");
 
                 // Run the tunnel
-                if let Err(e) = tunnel::run_tunnel(ws, local_addr, args.local_host.clone(), forward_timeout, quiet).await {
+                if let Err(e) =
+                    tunnel::run_tunnel(ws, local_addr, local_host.clone(), forward_timeout, quiet)
+                        .await
+                {
                     eprintln!("{} Tunnel error: {}", "✗".red(), e);
                 }
             }
@@ -149,21 +120,19 @@ async fn main() -> Result<()> {
             }
         }
 
-        println!(
-            "{} Connection lost, reconnecting...",
-            "!".yellow()
-        );
+        println!("{} Connection lost, reconnecting...", "!".yellow());
         reconnect.wait().await;
     }
 }
 
 fn print_qr_code(url: &str) {
-    use qrcode::QrCode;
     use qrcode::render::unicode;
+    use qrcode::QrCode;
 
     match QrCode::new(url) {
         Ok(code) => {
-            let image = code.render::<unicode::Dense1x2>()
+            let image = code
+                .render::<unicode::Dense1x2>()
                 .dark_color(unicode::Dense1x2::Light)
                 .light_color(unicode::Dense1x2::Dark)
                 .build();

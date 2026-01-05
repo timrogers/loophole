@@ -1,8 +1,60 @@
-[workspace]
-resolver = "2"
-members = ["crates/proto", "crates/server", "crates/client"]
-
-[workspace.package]
+[package]
+name = "loophole"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "A self-hosted HTTP tunnel"
+
+[[bin]]
+name = "loophole"
+path = "src/main.rs"
+
+[dependencies]
+# Core
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1"
+bytes = "1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP/WebSocket
+axum = { version = "0.7", features = ["ws"] }
+hyper = { version = "1", features = ["server", "http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
+http-body-util = "0.1"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+tower = "0.5"
+
+# Multiplexing
+yamux = "0.13"
+dashmap = "6"
+
+# TLS and ACME
+instant-acme = "0.7"
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+pem = "3"
+hyper-rustls = { version = "0.27", features = ["http1", "http2", "tls12", "ring"] }
+webpki-roots = "0.26"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+colored = "2"
+qrcode = "0.14"
+reqwest = { version = "0.12", features = ["json"] }
+rand = "0.9"
+dirs = "6"
+rpassword = "7"

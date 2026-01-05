@@ -3,7 +3,7 @@ use axum::extract::ws::{Message, WebSocket};
 use bytes::Bytes;
 use futures::io::{AsyncReadExt, AsyncWriteExt};
 use futures::StreamExt;
-use proto::{ClientMessage, ErrorCode, ServerMessage};
+use crate::proto::{ClientMessage, ErrorCode, ServerMessage};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,10 +11,10 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use yamux::{Connection, Mode};
 
-use crate::compat::Compat;
-use crate::registry::Registry;
-use crate::router::ServerState;
-use crate::tunnel::{ProxyError, ProxyRequest, Tunnel};
+use super::compat::Compat;
+use super::registry::Registry;
+use super::router::ServerState;
+use super::tunnel::{ProxyError, ProxyRequest, Tunnel};
 
 pub async fn handle_websocket(
     mut socket: WebSocket,
@@ -166,7 +166,13 @@ pub async fn handle_websocket(
                         debug!("Unexpected inbound stream from client");
                     }
                     Some(Err(e)) => {
-                        error!("Yamux connection error: {}", e);
+                        // Connection errors are expected when clients disconnect
+                        let err_str = e.to_string();
+                        if err_str.contains("Connection reset") || err_str.contains("closed") {
+                            debug!("Tunnel {} connection closed: {}", subdomain, e);
+                        } else {
+                            warn!("Tunnel {} connection error: {}", subdomain, e);
+                        }
                         break;
                     }
                     None => {

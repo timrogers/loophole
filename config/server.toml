@@ -1,8 +1,9 @@
+version = 1
+
 [server]
 domain = "localhost"
-http_port = 8090
+http_port = 8080
 https_port = 8443
-control_path = "/_tunnel/connect"
 
 [tokens]
 "tk_test123" = 5
@@ -18,9 +19,8 @@ idle_tunnel_timeout_secs = 3600
 # enabled = true
 # token = "admin_secret_token"
 
-# Uncomment to enable ACME/TLS support
+# Uncomment to enable HTTPS with Let's Encrypt
 # [acme]
 # email = "admin@example.com"
-# directory = "https://acme-v02.api.letsencrypt.org/directory"
 # certs_dir = "/var/lib/loophole/certs"
 # staging = false  # Set to true for Let's Encrypt staging

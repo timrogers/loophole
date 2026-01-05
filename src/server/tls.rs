@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tracing::{debug, error, info, warn};
 
-use crate::acme::{AcmeClient, ChallengeStore};
+use super::acme::{AcmeClient, ChallengeStore};
 
 /// Manages TLS certificates with dynamic loading based on SNI
 #[derive(Debug)]

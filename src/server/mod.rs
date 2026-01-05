@@ -8,8 +8,9 @@ mod router;
 mod tls;
 mod tunnel;
 
+pub use config::Config;
+
 use anyhow::{Context, Result};
-use clap::Parser;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,23 +20,9 @@ use tracing::{info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use acme::{AcmeClient, ChallengeStore};
-use config::Config;
 use registry::Registry;
-use router::{create_router, create_acme_router, ServerState};
+use router::{create_acme_router, create_router, ServerState};
 use tls::CertManager;
-
-#[derive(Parser)]
-#[command(name = "tunnel-server")]
-#[command(about = "A self-hosted HTTP tunnel server")]
-struct Args {
-    /// Path to configuration file
-    #[arg(short, long, default_value = "config/server.toml")]
-    config: String,
-
-    /// Log level
-    #[arg(long, default_value = "info")]
-    log_level: String,
-}
 
 /// Background task that periodically checks for idle tunnels and removes them
 async fn idle_tunnel_cleanup_task(
@@ -44,7 +31,7 @@ async fn idle_tunnel_cleanup_task(
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
     let check_interval = Duration::from_secs(60); // Check every minute
-    
+
     loop {
         tokio::select! {
             _ = tokio::time::sleep(check_interval) => {
@@ -70,31 +57,18 @@ async fn idle_tunnel_cleanup_task(
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
     // Install the default crypto provider for rustls
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    let args = Args::parse();
-
-    // Initialize logging
-    let level = match args.log_level.to_lowercase().as_str() {
-        "trace" => Level::TRACE,
-        "debug" => Level::DEBUG,
-        "info" => Level::INFO,
-        "warn" => Level::WARN,
-        "error" => Level::ERROR,
-        _ => Level::INFO,
-    };
-
-    let subscriber = FmtSubscriber::builder().with_max_level(level).finish();
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     // Load config
-    let config = Config::load(&args.config)?;
-    info!("Loaded configuration from {}", args.config);
+    let config = Config::load(config_path)?;
+    info!("Loaded configuration from {}", config_path);
     info!("Domain: {}", config.server.domain);
     info!("HTTP port: {}", config.server.http_port);
 
@@ -223,9 +197,9 @@ async fn main() -> Result<()> {
             let tls_config = tls::create_tls_config(cert_manager)?;
 
             info!("Starting HTTPS server on {}", https_addr);
-            
+
             let config = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
-            
+
             axum_server::bind_rustls(https_addr, config)
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>())
                 .await

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::tunnel::Tunnel;
+use super::tunnel::Tunnel;
 
 #[derive(Debug, Error)]
 pub enum RegistryError {

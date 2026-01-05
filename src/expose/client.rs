@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
-use proto::{ClientMessage, ErrorCode, ServerMessage};
+use crate::proto::{ClientMessage, ErrorCode, ServerMessage};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, error, info};
 

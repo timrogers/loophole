@@ -2,8 +2,12 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
+const CONFIG_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_version")]
+    pub version: u32,
     pub server: ServerConfig,
     pub tokens: HashMap<String, u32>,
     #[serde(default)]
@@ -14,6 +18,10 @@ pub struct Config {
     pub admin: Option<AdminConfig>,
 }
 
+fn default_version() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub domain: String,
@@ -21,8 +29,14 @@ pub struct ServerConfig {
     pub http_port: u16,
     #[serde(default = "default_https_port")]
     pub https_port: u16,
-    #[serde(default = "default_control_path")]
-    pub control_path: String,
+}
+
+const CONTROL_PATH: &str = "/_tunnel/connect";
+
+impl ServerConfig {
+    pub fn control_path(&self) -> &'static str {
+        CONTROL_PATH
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,13 +81,10 @@ impl Default for LimitsConfig {
 }
 
 fn default_http_port() -> u16 {
-    8080
+    80
 }
 fn default_https_port() -> u16 {
-    8443
-}
-fn default_control_path() -> String {
-    "/_tunnel/connect".to_string()
+    443
 }
 fn default_request_timeout() -> u64 {
     30
@@ -93,8 +104,18 @@ fn default_certs_dir() -> String {
 
 impl Config {
     pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let path = path.as_ref();
         let content = std::fs::read_to_string(path)?;
         let config: Config = toml::from_str(&content)?;
+
+        if config.version != CONFIG_VERSION {
+            anyhow::bail!(
+                "Config file version {} is not supported (expected {}). Please regenerate with 'loophole init'.",
+                config.version,
+                CONFIG_VERSION
+            );
+        }
+
         Ok(config)
     }
 

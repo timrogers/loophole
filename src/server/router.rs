@@ -13,11 +13,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info};
 
-use crate::acme::ChallengeStore;
-use crate::config::Config;
-use crate::proxy::proxy_request;
-use crate::registry::Registry;
-use crate::tls::CertManager;
+use super::acme::ChallengeStore;
+use super::config::Config;
+use super::proxy::proxy_request;
+use super::registry::Registry;
+use super::tls::CertManager;
 
 pub struct ServerState {
     pub config: Arc<Config>,
@@ -49,9 +49,9 @@ pub fn create_acme_router(
     challenge_store: Arc<ChallengeStore>,
     has_https: bool,
 ) -> Router {
-    let control_path = state.config.server.control_path.clone();
+    let control_path = state.config.server.control_path();
     let mut router = Router::new()
-        .route(&control_path, any(handle_request));
+        .route(control_path, any(handle_request));
     
     // Add admin routes if enabled
     if let Some(ref admin) = state.config.admin {
@@ -156,7 +156,7 @@ async fn handle_request(
         .to_string();
 
     // Check if this is a WebSocket upgrade request to the control path
-    if path == state.config.server.control_path {
+    if path == state.config.server.control_path() {
         if let Some(ws) = ws {
             return handle_tunnel_connect(ws, state, addr).await;
         } else {
@@ -275,7 +275,7 @@ async fn handle_tunnel_connect(
     info!("New tunnel connection from {}", addr);
 
     ws.on_upgrade(move |socket| async move {
-        if let Err(e) = crate::handler::handle_websocket(socket, state, addr).await {
+        if let Err(e) = super::handler::handle_websocket(socket, state, addr).await {
             error!("WebSocket handler error: {}", e);
         }
     })

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, warn};
 
-use crate::tunnel::Tunnel;
+use super::tunnel::Tunnel;
 
 pub async fn proxy_request(
     tunnel: Arc<Tunnel>,
