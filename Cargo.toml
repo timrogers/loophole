@@ -38,6 +38,7 @@ tower = "0.5"
 # Multiplexing
 yamux = "0.13"
 dashmap = "6"
+tokio-stream = "0.1"
 
 # TLS and ACME
 instant-acme = "0.7"

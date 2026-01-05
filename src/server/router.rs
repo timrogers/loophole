@@ -10,7 +10,6 @@ use axum::extract::ws::WebSocketUpgrade;
 use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tracing::{debug, error, info};
 
 use super::acme::ChallengeStore;
@@ -190,11 +189,8 @@ async fn handle_request(
     let is_https = state.config.https.is_some();
 
     // Proxy the request
-    let timeout = Duration::from_secs(state.config.limits.request_timeout_secs);
-    let max_body_bytes = state.config.limits.max_request_body_bytes;
-    
-    let response = match proxy_request(tunnel, req, addr.ip(), timeout, is_https, max_body_bytes).await {
-        Ok(response) => response.into_response(),
+    let response = match proxy_request(tunnel, req, addr.ip(), is_https).await {
+        Ok(response) => response,
         Err(e) => {
             let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
             info!(

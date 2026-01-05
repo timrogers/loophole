@@ -1,16 +1,17 @@
-use bytes::Bytes;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
+use yamux::Stream as YamuxStream;
 
-/// A request to be proxied through the tunnel
+/// A request to be proxied through the tunnel - now provides a yamux stream for bidirectional I/O
 pub struct ProxyRequest {
-    pub request_bytes: Bytes,
-    pub response_tx: oneshot::Sender<Result<Bytes, ProxyError>>,
+    /// Channel to send the opened yamux stream back
+    pub stream_tx: oneshot::Sender<Result<YamuxStream, ProxyError>>,
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum ProxyError {
     StreamOpenFailed,
     WriteFailed,
@@ -80,18 +81,16 @@ impl Tunnel {
         self.last_activity().elapsed() > timeout
     }
 
-    pub async fn proxy(&self, request_bytes: Bytes) -> Result<Bytes, ProxyError> {
-        let (response_tx, response_rx) = oneshot::channel();
-        let request = ProxyRequest {
-            request_bytes,
-            response_tx,
-        };
+    /// Request a yamux stream for proxying
+    pub async fn get_stream(&self) -> Result<YamuxStream, ProxyError> {
+        let (stream_tx, stream_rx) = oneshot::channel();
+        let request = ProxyRequest { stream_tx };
 
         self.request_tx
             .send(request)
             .await
             .map_err(|_| ProxyError::ConnectionClosed)?;
 
-        response_rx.await.map_err(|_| ProxyError::ConnectionClosed)?
+        stream_rx.await.map_err(|_| ProxyError::ConnectionClosed)?
     }
 }

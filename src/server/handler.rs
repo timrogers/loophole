@@ -1,12 +1,9 @@
 use anyhow::Result;
 use axum::extract::ws::{Message, WebSocket};
-use bytes::Bytes;
-use futures::io::{AsyncReadExt, AsyncWriteExt};
 use futures::StreamExt;
 use crate::proto::{ClientMessage, ErrorCode, ServerMessage};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use yamux::{Connection, Mode};
@@ -138,25 +135,19 @@ pub async fn handle_websocket(
         tokio::select! {
             // Handle proxy requests from the channel
             Some(request) = request_rx.recv() => {
-                debug!("Received proxy request for {} bytes", request.request_bytes.len());
+                debug!("Received stream request");
                 
                 // Open a new outbound stream
                 let stream_result = std::future::poll_fn(|cx| connection.poll_new_outbound(cx)).await;
                 
                 match stream_result {
-                    Ok(mut stream) => {
-                        // Spawn a task to handle this stream
-                        let request_bytes = request.request_bytes;
-                        let response_tx = request.response_tx;
-                        
-                        tokio::spawn(async move {
-                            let result = handle_proxy_stream(&mut stream, request_bytes).await;
-                            let _ = response_tx.send(result);
-                        });
+                    Ok(stream) => {
+                        // Send the stream back to the requester
+                        let _ = request.stream_tx.send(Ok(stream));
                     }
                     Err(e) => {
                         error!("Failed to open stream: {}", e);
-                        let _ = request.response_tx.send(Err(ProxyError::StreamOpenFailed));
+                        let _ = request.stream_tx.send(Err(ProxyError::StreamOpenFailed));
                     }
                 }
             }
@@ -192,34 +183,6 @@ pub async fn handle_websocket(
     info!("Tunnel {} deregistered", subdomain);
 
     Ok(())
-}
-
-async fn handle_proxy_stream(
-    stream: &mut yamux::Stream,
-    request_bytes: Bytes,
-) -> Result<Bytes, ProxyError> {
-    // Write request
-    stream
-        .write_all(&request_bytes)
-        .await
-        .map_err(|_| ProxyError::WriteFailed)?;
-    
-    // Flush to ensure data is sent
-    stream.flush().await.map_err(|_| ProxyError::WriteFailed)?;
-
-    // Read response with timeout
-    let mut response_bytes = Vec::new();
-    let read_result = tokio::time::timeout(
-        Duration::from_secs(30),
-        stream.read_to_end(&mut response_bytes),
-    )
-    .await;
-
-    match read_result {
-        Ok(Ok(_)) => Ok(Bytes::from(response_bytes)),
-        Ok(Err(_)) => Err(ProxyError::ReadFailed),
-        Err(_) => Err(ProxyError::Timeout),
-    }
 }
 
 async fn wait_for_registration(socket: &mut WebSocket) -> Result<Option<(String, String)>> {
