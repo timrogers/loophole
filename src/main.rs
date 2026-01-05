@@ -127,13 +127,17 @@ enum Commands {
 
     /// Show status of active tunnels on a server
     Status {
-        /// Server URL (e.g., https://tunnel.example.com)
+        /// Server URL (uses config if not provided)
         #[arg(long)]
-        server: String,
+        server: Option<String>,
 
-        /// Admin API token
+        /// Authentication token (uses config if not provided, must have admin privileges)
         #[arg(long)]
-        admin_token: String,
+        token: Option<String>,
+
+        /// Path to server configuration file
+        #[arg(short, long, default_value_t = default_config_path())]
+        config: String,
     },
 }
 
@@ -196,7 +200,8 @@ async fn main() -> Result<()> {
         }
         Commands::Status {
             server,
-            admin_token,
-        } => status::run(server, admin_token).await,
+            token,
+            config,
+        } => status::run(server, token, config).await,
     }
 }

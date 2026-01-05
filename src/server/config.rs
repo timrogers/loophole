@@ -9,17 +9,25 @@ pub struct Config {
     #[serde(default = "default_version")]
     pub version: u32,
     pub server: ServerConfig,
-    pub tokens: HashMap<String, u32>,
+    pub tokens: HashMap<String, TokenConfig>,
     #[serde(default)]
     pub limits: LimitsConfig,
     #[serde(default)]
     pub acme: Option<AcmeConfig>,
-    #[serde(default)]
-    pub admin: Option<AdminConfig>,
 }
 
 fn default_version() -> u32 {
     1
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TokenConfig {
+    /// Maximum number of tunnels this token can create (0 = unlimited)
+    #[serde(default)]
+    pub max_tunnels: u32,
+    /// Whether this token has admin privileges
+    #[serde(default)]
+    pub admin: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,13 +58,6 @@ pub struct AcmeConfig {
     pub staging: bool,
     /// Path to additional root CA PEM file (for testing with Pebble)
     pub ca_file: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AdminConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    pub token: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,7 +120,16 @@ impl Config {
         Ok(config)
     }
 
-    pub fn validate_token(&self, token: &str) -> Option<u32> {
-        self.tokens.get(token).copied()
+    /// Validate a token and return its config if valid
+    pub fn validate_token(&self, token: &str) -> Option<&TokenConfig> {
+        self.tokens.get(token)
+    }
+
+    /// Check if a token is valid and has admin privileges
+    pub fn validate_admin_token(&self, token: &str) -> bool {
+        self.tokens
+            .get(token)
+            .map(|t| t.admin)
+            .unwrap_or(false)
     }
 }

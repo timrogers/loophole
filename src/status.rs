@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::Deserialize;
 
+use crate::server::Config;
+
 #[derive(Debug, Deserialize)]
 struct TunnelInfo {
     subdomain: String,
@@ -48,19 +50,54 @@ fn format_count(n: u64) -> String {
     }
 }
 
-pub async fn run(server: String, admin_token: String) -> Result<()> {
+pub async fn run(server: Option<String>, token: Option<String>, config_path: String) -> Result<()> {
+    // Try to load from server config first, then fall back to client config
+    let (server, token) = match (server, token) {
+        (Some(s), Some(t)) => (s, t),
+        (server_opt, token_opt) => {
+            // Try server config first
+            if let Ok(config) = Config::load(&config_path) {
+                let server = server_opt.unwrap_or_else(|| format!("https://{}", config.server.domain));
+
+                let token = match token_opt {
+                    Some(t) => t,
+                    None => {
+                        // Find an admin token from config
+                        config
+                            .tokens
+                            .iter()
+                            .find(|(_, t)| t.admin)
+                            .map(|(token, _)| token.clone())
+                            .context("No --token provided and no admin token found in server config")?
+                    }
+                };
+
+                (server, token)
+            } else {
+                // Fall back to client config
+                let client_config = crate::client_config::ClientConfig::load()?
+                    .context("No --server/--token provided and no config found")?;
+
+                let server = server_opt.unwrap_or(client_config.server);
+                let token = token_opt.unwrap_or(client_config.token);
+
+                (server, token)
+            }
+        }
+    };
+
     let url = format!("{}/_admin/tunnels", server);
 
     let client = reqwest::Client::new();
     let response = client
         .get(&url)
-        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
         .context("Failed to connect to server")?;
 
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-        anyhow::bail!("Invalid admin token");
+        anyhow::bail!("Invalid or non-admin token");
     }
 
     if response.status() == reqwest::StatusCode::NOT_FOUND {

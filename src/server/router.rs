@@ -27,20 +27,12 @@ pub struct ServerState {
 
 /// Create the main router for HTTPS (tunnel connections and proxying)
 pub fn create_router(state: Arc<ServerState>) -> Router {
-    let mut router = Router::new()
+    Router::new()
         .route("/*path", any(handle_request))
-        .route("/", any(handle_request));
-    
-    // Add admin routes if enabled
-    if let Some(ref admin) = state.config.admin {
-        if admin.enabled {
-            router = router
-                .route("/_admin/tunnels", get(list_tunnels))
-                .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
-        }
-    }
-    
-    router.with_state(state)
+        .route("/", any(handle_request))
+        .route("/_admin/tunnels", get(list_tunnels))
+        .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel))
+        .with_state(state)
 }
 
 /// Create the HTTP router that handles ACME challenges and redirects to HTTPS
@@ -50,17 +42,10 @@ pub fn create_acme_router(
     has_https: bool,
 ) -> Router {
     let control_path = state.config.server.control_path();
-    let mut router = Router::new()
-        .route(control_path, any(handle_request));
-    
-    // Add admin routes if enabled
-    if let Some(ref admin) = state.config.admin {
-        if admin.enabled {
-            router = router
-                .route("/_admin/tunnels", get(list_tunnels))
-                .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
-        }
-    }
+    let router = Router::new()
+        .route(control_path, any(handle_request))
+        .route("/_admin/tunnels", get(list_tunnels))
+        .route("/_admin/tunnels/{subdomain}", delete(delete_tunnel));
     
     if has_https {
         // HTTPS mode: ACME challenges served directly, everything else redirected
@@ -303,10 +288,6 @@ struct AdminError {
 
 /// Validate admin authorization header
 fn validate_admin_auth(req: &Request<Body>, config: &Config) -> Result<(), Response> {
-    let admin = config.admin.as_ref().ok_or_else(|| {
-        (StatusCode::NOT_FOUND, "Admin endpoint not enabled").into_response()
-    })?;
-    
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -320,8 +301,8 @@ fn validate_admin_auth(req: &Request<Body>, config: &Config) -> Result<(), Respo
         (StatusCode::UNAUTHORIZED, Json(AdminError { error: "Invalid authorization format".to_string() })).into_response()
     })?;
     
-    if token != admin.token {
-        return Err((StatusCode::UNAUTHORIZED, Json(AdminError { error: "Invalid admin token".to_string() })).into_response());
+    if !config.validate_admin_token(token) {
+        return Err((StatusCode::UNAUTHORIZED, Json(AdminError { error: "Invalid or non-admin token".to_string() })).into_response());
     }
     
     Ok(())

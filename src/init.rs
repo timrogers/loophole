@@ -24,6 +24,20 @@ fn prompt(message: &str) -> Result<String> {
     Ok(input.trim().to_string())
 }
 
+fn prompt_yes_no(message: &str, default: bool) -> Result<bool> {
+    let hint = if default { "[Y/n]" } else { "[y/N]" };
+    print!("{} {}: ", message, hint);
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+    if input.is_empty() {
+        Ok(default)
+    } else {
+        Ok(input == "y" || input == "yes")
+    }
+}
+
 fn install_systemd_service(config_path: &PathBuf) -> Result<()> {
     // Find the loophole binary
     let binary_path = std::env::current_exe()
@@ -122,8 +136,7 @@ pub fn run(domain: Option<String>, email: Option<String>, output: Option<String>
         }
     };
 
-    let tunnel_token = generate_token("tk");
-    let admin_token = generate_token("admin");
+    let token = generate_token("tk");
 
     let config = format!(
         r#"# Loophole Server Configuration
@@ -142,10 +155,15 @@ domain = "{domain}"
 # Default: 443
 # https_port = 443
 
-[tokens]
-# Authentication tokens for clients
-# Format: "token" = max_tunnels (0 = unlimited)
-"{tunnel_token}" = 0
+[tokens.{token}]
+# Token with admin privileges (can create unlimited tunnels and access admin API)
+max_tunnels = 0
+admin = true
+
+# Example: non-admin token with limited tunnels
+# [tokens.tk_example123]
+# max_tunnels = 5
+# admin = false
 
 [limits]
 # Timeout for proxied requests (seconds)
@@ -166,11 +184,6 @@ certs_dir = "/var/lib/loophole/certs"
 
 # Use Let's Encrypt staging for testing (avoids rate limits)
 # staging = false
-
-[admin]
-# Admin API for monitoring and management
-enabled = true
-token = "{admin_token}"
 "#
     );
 
@@ -186,10 +199,14 @@ token = "{admin_token}"
 
     // Check if file already exists
     if output_path.exists() {
-        anyhow::bail!(
-            "Config file already exists at {}. Remove it first or use --output to specify a different path.",
-            output_path.display()
-        );
+        let overwrite = prompt_yes_no(
+            &format!("Config file already exists at {}. Overwrite?", output_path.display()),
+            false,
+        )?;
+        if !overwrite {
+            println!("Aborted.");
+            return Ok(());
+        }
     }
 
     // Write config
@@ -213,19 +230,21 @@ token = "{admin_token}"
     // Print success
     println!("{} Created {}", "✓".green(), output_path.display());
     println!(
-        "{} Generated tunnel token: {}",
+        "{} Generated token: {} {}",
         "✓".green(),
-        tunnel_token.cyan()
-    );
-    println!(
-        "{} Generated admin token: {}",
-        "✓".green(),
-        admin_token.cyan()
+        token.cyan(),
+        "(admin)".dimmed()
     );
     println!();
 
-    // Install systemd service if requested
-    if install {
+    // Install systemd service - either from --install flag or interactive prompt
+    let should_install = if install {
+        true
+    } else {
+        prompt_yes_no("Install systemd service to run in the background?", true)?
+    };
+
+    if should_install {
         install_systemd_service(&output_path)?;
         println!();
     }
@@ -255,7 +274,7 @@ token = "{admin_token}"
     );
     println!();
 
-    if install {
+    if should_install {
         // Service is already running
         println!("  {}. {} Check service status", "3".cyan(), "→".dimmed());
         println!(
@@ -308,29 +327,41 @@ token = "{admin_token}"
             "       {}",
             "sudo systemctl enable --now loophole".bright_white()
         );
-        println!();
-        println!("     Or use {} during init to set this up automatically.", "--install".cyan());
     }
     println!();
 
-    // Print client connection example
+    // Print client connection example with copyable commands
     println!("{}", "Connect a client:".bold());
     println!();
-    println!("  On the client machine, login and test the connection:");
+    println!("  Store your credentials with the {} command:", "login".cyan());
+    println!();
     println!(
         "    {}",
         format!(
             "loophole login --server {} --token {}",
-            domain, tunnel_token
+            domain, token
         )
         .bright_white()
     );
+    println!();
+    println!("  Test your connection:");
+    println!();
     println!("    {}", "loophole test".bright_white());
     println!();
-    println!("  Then expose a local service:");
+    println!("  Expose a local service:");
+    println!();
     println!(
         "    {}",
         "loophole expose --subdomain myapp --port 3000".bright_white()
+    );
+    println!();
+
+    // Print admin status command
+    println!("{}", "Monitor server status:".bold());
+    println!();
+    println!(
+        "    {}",
+        "loophole status".bright_white()
     );
 
     Ok(())
