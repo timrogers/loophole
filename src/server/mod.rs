@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
-use tracing::{info, warn, Level};
+use tracing::{error, info, warn, Level};
 use tracing_subscriber::FmtSubscriber;
 
 use acme::{AcmeClient, ChallengeStore};
@@ -116,20 +116,12 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
             .await?,
         );
 
-        // Request base domain certificate for secure tunnel connections
-        let base_domain = config.server.domain.clone();
-        if !cert_manager.has_cert(&base_domain) {
-            info!("Requesting certificate for base domain: {}", base_domain);
-            if let Err(e) = cert_manager.request_cert(&base_domain).await {
-                warn!("Failed to get base domain certificate: {}. Tunnel connections will use HTTP until certificate is obtained.", e);
-            } else {
-                info!("Base domain certificate ready");
-            }
-        }
+        // Note: Base domain certificate will be requested after HTTP server starts
+        // so that ACME HTTP-01 challenges can be served
 
         (Some(acme_client), Some(cert_manager))
     } else {
-        info!("ACME not configured, running HTTP only");
+        info!("HTTPS not configured, running HTTP only");
         (None, None)
     };
 
@@ -200,6 +192,23 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
         let https_addr = SocketAddr::from(([0, 0, 0, 0], config.server.https_port));
         let https_state = state.clone();
 
+        // Request base domain certificate in background (after HTTP server has started)
+        let base_domain = config.server.domain.clone();
+        let cert_manager_clone = cert_manager.clone();
+        tokio::spawn(async move {
+            // Give HTTP server a moment to start
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            
+            if !cert_manager_clone.has_cert(&base_domain) {
+                info!("Requesting certificate for base domain: {}", base_domain);
+                if let Err(e) = cert_manager_clone.request_cert(&base_domain).await {
+                    warn!("Failed to get base domain certificate: {}. Clients should connect via http:// until certificate is obtained.", e);
+                } else {
+                    info!("Base domain certificate ready - clients can now connect via https://");
+                }
+            }
+        });
+
         let https_handle = tokio::spawn(async move {
             let app = create_router(https_state);
             let tls_config = tls::create_tls_config(cert_manager)?;
@@ -217,13 +226,17 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
         // Wait for shutdown signal or server error
         tokio::select! {
             res = http_handle => {
-                if let Err(e) = res {
-                    warn!("HTTP server error: {}", e);
+                match res {
+                    Ok(Ok(())) => info!("HTTP server exited"),
+                    Ok(Err(e)) => error!("HTTP server error: {}", e),
+                    Err(e) => error!("HTTP server task panicked: {}", e),
                 }
             },
             res = https_handle => {
-                if let Err(e) = res {
-                    warn!("HTTPS server error: {}", e);
+                match res {
+                    Ok(Ok(())) => info!("HTTPS server exited"),
+                    Ok(Err(e)) => error!("HTTPS server error: {}", e),
+                    Err(e) => error!("HTTPS server task panicked: {}", e),
                 }
             },
             _ = shutdown_signal => {
@@ -234,8 +247,10 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
         // Just HTTP
         tokio::select! {
             res = http_handle => {
-                if let Err(e) = res {
-                    warn!("HTTP server error: {}", e);
+                match res {
+                    Ok(Ok(())) => info!("HTTP server exited"),
+                    Ok(Err(e)) => error!("HTTP server error: {}", e),
+                    Err(e) => error!("HTTP server task panicked: {}", e),
                 }
             },
             _ = shutdown_signal => {
