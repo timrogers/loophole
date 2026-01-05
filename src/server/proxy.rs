@@ -108,7 +108,15 @@ fn parse_http_response(data: &[u8], request_id: &str) -> Result<hyper::Response<
     let header_end = match find_header_end(data) {
         Some(pos) => pos,
         None => {
-            warn!(request_id = %request_id, "Invalid HTTP response: no header end found");
+            // Log what we actually received for debugging
+            let preview_len = std::cmp::min(data.len(), 200);
+            let preview = String::from_utf8_lossy(&data[..preview_len]);
+            warn!(
+                request_id = %request_id, 
+                data_len = data.len(),
+                preview = %preview,
+                "Invalid HTTP response: no header end found"
+            );
             return Ok(bad_gateway("Invalid response from backend"));
         }
     };
