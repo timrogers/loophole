@@ -113,7 +113,50 @@ WantedBy=multi-user.target
     Ok(())
 }
 
+fn validate_config_path(output_path: &PathBuf) -> Result<()> {
+    // Create parent directory if needed
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).context(format!(
+                "Failed to create directory {}. Try running with sudo.",
+                parent.display()
+            ))?;
+        }
+    }
+
+    // Check if we can write to the path by creating/opening the file
+    let can_write = if output_path.exists() {
+        // Check if we can write to existing file
+        fs::OpenOptions::new()
+            .write(true)
+            .open(output_path)
+            .is_ok()
+    } else {
+        // Try to create the file, then remove it
+        match fs::File::create(output_path) {
+            Ok(_) => {
+                let _ = fs::remove_file(output_path);
+                true
+            }
+            Err(_) => false,
+        }
+    };
+
+    if !can_write {
+        anyhow::bail!(
+            "Cannot write to {}. Try running with sudo.",
+            output_path.display()
+        );
+    }
+
+    Ok(())
+}
+
 pub fn run(domain: Option<String>, email: Option<String>, output: Option<String>, install: bool) -> Result<()> {
+    // Validate config path early, before prompting for input
+    let output_path = PathBuf::from(output.unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string()));
+    validate_config_path(&output_path)?;
+
     let domain = match domain {
         Some(d) => d,
         None => {
@@ -156,13 +199,11 @@ domain = "{domain}"
 # https_port = 443
 
 [tokens.{token}]
-# Token with admin privileges (can create unlimited tunnels and access admin API)
-max_tunnels = 0
+# Token with admin privileges (can access admin API)
 admin = true
 
-# Example: non-admin token with limited tunnels
+# Example: non-admin token
 # [tokens.tk_example123]
-# max_tunnels = 5
 # admin = false
 
 [limits]
@@ -175,8 +216,8 @@ admin = true
 # Disconnect tunnels idle for this long (seconds)
 # idle_tunnel_timeout_secs = 3600
 
-[acme]
-# Let's Encrypt configuration for automatic HTTPS
+[https]
+# HTTPS configuration with automatic Let's Encrypt certificates
 email = "{email}"
 
 # Directory to store certificates
@@ -186,16 +227,6 @@ certs_dir = "/var/lib/loophole/certs"
 # staging = false
 "#
     );
-
-    let output_path = PathBuf::from(output.unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string()));
-
-    // Create parent directory if needed
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent).context(format!(
-            "Failed to create directory {}",
-            parent.display()
-        ))?;
-    }
 
     // Check if file already exists
     if output_path.exists() {

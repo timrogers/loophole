@@ -31,6 +31,19 @@ pub async fn run(server: Option<String>, token: Option<String>) -> Result<()> {
         }
     };
 
+    // Validate and normalize the server URL
+    let server = if !server.starts_with("http://") && !server.starts_with("https://") {
+        // Default to https:// if no scheme provided
+        format!("https://{}", server)
+    } else {
+        server
+    };
+
+    // Validate URL format
+    if url::Url::parse(&server).is_err() {
+        anyhow::bail!("Invalid server URL: {}", server);
+    }
+
     let token = match token {
         Some(t) => t,
         None => {

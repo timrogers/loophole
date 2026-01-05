@@ -27,7 +27,9 @@ pub struct ServerState {
 
 /// Create the main router for HTTPS (tunnel connections and proxying)
 pub fn create_router(state: Arc<ServerState>) -> Router {
+    let control_path = state.config.server.control_path();
     Router::new()
+        .route(control_path, any(handle_request))
         .route("/*path", any(handle_request))
         .route("/", any(handle_request))
         .route("/_admin/tunnels", get(list_tunnels))
@@ -185,7 +187,7 @@ async fn handle_request(
     };
 
     // Determine if this is HTTPS based on whether ACME is configured
-    let is_https = state.config.acme.is_some();
+    let is_https = state.config.https.is_some();
 
     // Proxy the request
     let timeout = Duration::from_secs(state.config.limits.request_timeout_secs);

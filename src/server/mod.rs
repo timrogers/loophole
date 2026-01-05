@@ -79,19 +79,19 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
     let challenge_store = Arc::new(ChallengeStore::new());
 
     // Create ACME client and cert manager if configured
-    let (_acme_client, cert_manager) = if let Some(ref acme_config) = config.acme {
-        info!("ACME enabled with email: {}", acme_config.email);
+    let (_acme_client, cert_manager) = if let Some(ref https_config) = config.https {
+        info!("HTTPS enabled with email: {}", https_config.email);
         info!("HTTPS port: {}", config.server.https_port);
 
-        let certs_dir = PathBuf::from(&acme_config.certs_dir);
-        let directory_url = if acme_config.staging {
+        let certs_dir = PathBuf::from(&https_config.certs_dir);
+        let directory_url = if https_config.staging {
             "https://acme-staging-v02.api.letsencrypt.org/directory"
         } else {
-            &acme_config.directory
+            &https_config.directory
         };
 
         // Load custom CA file if specified (for testing with Pebble)
-        let additional_roots = if let Some(ref ca_file) = acme_config.ca_file {
+        let additional_roots = if let Some(ref ca_file) = https_config.ca_file {
             info!("Loading additional CA from: {}", ca_file);
             Some(std::fs::read(ca_file).context("Failed to read CA file")?)
         } else {
@@ -100,7 +100,7 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
 
         let acme_client = Arc::new(
             AcmeClient::new_with_roots(
-                &acme_config.email,
+                &https_config.email,
                 directory_url,
                 certs_dir.clone(),
                 challenge_store.clone(),
@@ -118,6 +118,17 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
             )
             .await?,
         );
+
+        // Request base domain certificate for secure tunnel connections
+        let base_domain = config.server.domain.clone();
+        if !cert_manager.has_cert(&base_domain) {
+            info!("Requesting certificate for base domain: {}", base_domain);
+            if let Err(e) = cert_manager.request_cert(&base_domain).await {
+                warn!("Failed to get base domain certificate: {}. Tunnel connections will use HTTP until certificate is obtained.", e);
+            } else {
+                info!("Base domain certificate ready");
+            }
+        }
 
         (Some(acme_client), Some(cert_manager))
     } else {

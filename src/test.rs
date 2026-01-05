@@ -8,18 +8,21 @@ pub async fn check_connection(server: &str, token: &str) -> Result<()> {
     use crate::proto::{ClientMessage, ServerMessage};
     use futures::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
+    use tracing::debug;
 
-    // Build WebSocket URL
+    // Convert HTTP(S) URL to WS(S) URL
     let ws_url = if server.starts_with("https://") {
         server.replace("https://", "wss://")
     } else if server.starts_with("http://") {
         server.replace("http://", "ws://")
     } else {
-        format!("ws://{}", server)
+        // Legacy: no scheme provided, default to wss://
+        format!("wss://{}", server)
     };
     let ws_url = format!("{}/_tunnel/connect", ws_url);
 
-    // Connect
+    debug!("Connecting to {}", ws_url);
+    
     let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;

@@ -86,9 +86,16 @@ pub async fn run(server: Option<String>, token: Option<String>, config_path: Str
         }
     };
 
-    let url = format!("{}/_admin/tunnels", server);
+    // Use the scheme from the stored server URL
+    let url = if server.starts_with("https://") || server.starts_with("http://") {
+        format!("{}/_admin/tunnels", server)
+    } else {
+        // Legacy: no scheme, default to https
+        format!("https://{}/_admin/tunnels", server)
+    };
 
     let client = reqwest::Client::new();
+    
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {}", token))

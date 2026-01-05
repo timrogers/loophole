@@ -12,8 +12,9 @@ pub struct Config {
     pub tokens: HashMap<String, TokenConfig>,
     #[serde(default)]
     pub limits: LimitsConfig,
-    #[serde(default)]
-    pub acme: Option<AcmeConfig>,
+    /// HTTPS configuration (renamed from acme for clarity)
+    #[serde(default, alias = "acme")]
+    pub https: Option<HttpsConfig>,
 }
 
 fn default_version() -> u32 {
@@ -22,9 +23,6 @@ fn default_version() -> u32 {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TokenConfig {
-    /// Maximum number of tunnels this token can create (0 = unlimited)
-    #[serde(default)]
-    pub max_tunnels: u32,
     /// Whether this token has admin privileges
     #[serde(default)]
     pub admin: bool,
@@ -48,7 +46,7 @@ impl ServerConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct AcmeConfig {
+pub struct HttpsConfig {
     pub email: String,
     #[serde(default = "default_acme_directory")]
     pub directory: String,

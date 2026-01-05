@@ -78,11 +78,29 @@ pub async fn run(
         let client = TunnelClient::new(server.clone(), token.clone(), subdomain.clone());
 
         match client.connect().await {
-            Ok(conn) => {
+            Ok(mut conn) => {
                 reconnect.reset();
 
                 // Print success message
                 println!("{} Connected to {}", "✓".green(), server.green());
+
+                // Check certificate status before showing URL
+                let cert_status = TunnelClient::wait_for_cert_status(&mut conn.read).await;
+                
+                if let Some(false) = cert_status {
+                    // Certificate is being provisioned, wait for it
+                    print!("{} Waiting for SSL certificate...", "⏳".yellow());
+                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                    
+                    let cert_ready = TunnelClient::wait_for_cert_ready(&mut conn.read, 90).await;
+                    
+                    if cert_ready {
+                        println!(" {}", "ready!".green());
+                    } else {
+                        println!(" {}", "timeout (HTTPS may not work immediately)".yellow());
+                    }
+                }
+
                 println!(
                     "{} Tunnel URL: {}",
                     "✓".green(),

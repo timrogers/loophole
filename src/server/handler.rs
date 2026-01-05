@@ -45,7 +45,7 @@ pub async fn handle_websocket(
 
     // Determine URL based on HTTPS availability
     let full_domain = format!("{}.{}", subdomain, state.config.server.domain);
-    let (url, cert_ready) = if state.config.acme.is_some() {
+    let (url, cert_ready) = if state.config.https.is_some() {
         // HTTPS mode
         let https_port = state.config.server.https_port;
         let url = if https_port == 443 {
@@ -88,23 +88,26 @@ pub async fn handle_websocket(
     info!("Tunnel registered: {} -> {}", subdomain, url);
 
     // If HTTPS is enabled and cert doesn't exist, request it
-    if state.config.acme.is_some() {
+    if state.config.https.is_some() {
         if !cert_ready {
             // Send certificate status (not ready)
             let cert_status = ServerMessage::CertificateStatus { ready: false };
             let _ = socket.send(Message::Text(cert_status.to_json().unwrap().into())).await;
             
-            // Request certificate in background
+            // Request certificate synchronously so client can wait
             if let Some(ref cert_manager) = state.cert_manager {
-                let cm = cert_manager.clone();
-                let domain = full_domain.clone();
-                
-                tokio::spawn(async move {
-                    match cm.request_cert(&domain).await {
-                        Ok(()) => info!("Certificate ready for {}", domain),
-                        Err(e) => error!("Failed to get certificate for {}: {}", domain, e),
+                match cert_manager.request_cert(&full_domain).await {
+                    Ok(()) => {
+                        info!("Certificate ready for {}", full_domain);
+                        // Send certificate ready status
+                        let cert_status = ServerMessage::CertificateStatus { ready: true };
+                        let _ = socket.send(Message::Text(cert_status.to_json().unwrap().into())).await;
                     }
-                });
+                    Err(e) => {
+                        error!("Failed to get certificate for {}: {}", full_domain, e);
+                        // Don't send ready status - client will timeout
+                    }
+                }
             }
         } else {
             // Send certificate status (ready)
