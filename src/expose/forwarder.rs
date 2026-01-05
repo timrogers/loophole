@@ -1,11 +1,9 @@
 use colored::Colorize;
 use futures::io::{AsyncReadExt as FuturesAsyncReadExt, AsyncWriteExt as FuturesAsyncWriteExt};
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 use tracing::debug;
 
 /// Handle a tunnel stream by connecting to local server and proxying bidirectionally
@@ -80,6 +78,7 @@ where
             // Send error response back through tunnel
             let error_response = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 26\r\n\r\nCannot connect to backend";
             let _ = tunnel_stream.write_all(error_response).await;
+            let _ = tunnel_stream.close().await;
             debug!("Failed to connect to local server: {}", e);
             return;
         }
@@ -92,28 +91,25 @@ where
         debug!("Failed to write to local server: {}", e);
         let error_response = b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 24\r\n\r\nFailed to send request";
         let _ = tunnel_stream.write_all(error_response).await;
+        let _ = tunnel_stream.close().await;
         return;
     }
 
-    // Use Arc<Mutex> to share the tunnel stream between two tasks
-    let tunnel_stream = Arc::new(Mutex::new(tunnel_stream));
-    let tunnel_read = tunnel_stream.clone();
-    let tunnel_write = tunnel_stream.clone();
+    // Split the tunnel stream into read and write halves
+    let (mut tunnel_read, mut tunnel_write) = tunnel_stream.split();
 
     // Bidirectional copy between tunnel and local server
     let tunnel_to_local = async move {
         let mut buf = [0u8; 8192];
         loop {
-            let n = {
-                let mut stream = tunnel_read.lock().await;
-                match stream.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => n,
-                    Err(_) => break,
+            match tunnel_read.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    if local_write.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
                 }
-            };
-            if local_write.write_all(&buf[..n]).await.is_err() {
-                break;
+                Err(_) => break,
             }
         }
         let _ = local_write.shutdown().await;
@@ -142,16 +138,16 @@ where
                         }
                     }
                     
-                    {
-                        let mut stream = tunnel_write.lock().await;
-                        if stream.write_all(&buf[..n]).await.is_err() {
-                            break;
-                        }
+                    if tunnel_write.write_all(&buf[..n]).await.is_err() {
+                        break;
                     }
                 }
                 Err(_) => break,
             }
         }
+        // Flush to ensure all data is sent before we finish
+        let _ = tunnel_write.flush().await;
+        let _ = tunnel_write.close().await;
         
         (status_code, total_bytes)
     };

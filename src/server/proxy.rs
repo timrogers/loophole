@@ -92,18 +92,33 @@ pub async fn proxy_request(
 
     debug!(request_id = %request_id, "Request sent to tunnel, reading response");
 
-    // Read response headers from tunnel
+    // Read response headers from tunnel with timeout
     let mut header_buf = Vec::new();
     let mut buf = [0u8; 4096];
     let header_end;
     
+    let header_read_timeout = std::time::Duration::from_secs(30);
+    let header_read_start = std::time::Instant::now();
+    
     loop {
-        match stream.read(&mut buf).await {
-            Ok(0) => {
+        // Check timeout
+        if header_read_start.elapsed() > header_read_timeout {
+            warn!(request_id = %request_id, "Timeout waiting for response headers");
+            return Ok(gateway_timeout("Timeout waiting for response"));
+        }
+        
+        // Use a short timeout for each read to allow checking overall timeout
+        let read_result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            stream.read(&mut buf)
+        ).await;
+        
+        match read_result {
+            Ok(Ok(0)) => {
                 warn!(request_id = %request_id, "Tunnel closed before response headers");
                 return Ok(bad_gateway("Tunnel closed unexpectedly"));
             }
-            Ok(n) => {
+            Ok(Ok(n)) => {
                 header_buf.extend_from_slice(&buf[..n]);
                 if let Some(pos) = find_header_end(&header_buf) {
                     header_end = pos;
@@ -114,9 +129,13 @@ pub async fn proxy_request(
                     return Ok(bad_gateway("Response headers too large"));
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 error!(request_id = %request_id, "Failed to read response from tunnel: {}", e);
                 return Ok(bad_gateway("Failed to read response from tunnel"));
+            }
+            Err(_) => {
+                // Individual read timeout - continue to check overall timeout
+                continue;
             }
         }
     }
@@ -248,4 +267,8 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 
 fn bad_gateway(msg: &str) -> Response {
     (StatusCode::BAD_GATEWAY, msg.to_string()).into_response()
+}
+
+fn gateway_timeout(msg: &str) -> Response {
+    (StatusCode::GATEWAY_TIMEOUT, msg.to_string()).into_response()
 }
