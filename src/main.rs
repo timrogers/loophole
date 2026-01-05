@@ -154,6 +154,11 @@ fn parse_log_level(s: &str) -> Level {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install the default crypto provider for rustls (needed for TLS connections)
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok(); // Ignore error if already installed
+
     let cli = Cli::parse();
 
     match cli.command {
