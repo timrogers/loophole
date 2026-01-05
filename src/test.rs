@@ -11,21 +11,36 @@ pub async fn check_connection(server: &str, token: &str) -> Result<()> {
     use tracing::debug;
 
     // Convert HTTP(S) URL to WS(S) URL
-    let ws_url = if server.starts_with("https://") {
-        server.replace("https://", "wss://")
+    let (ws_url, fallback_url) = if server.starts_with("https://") {
+        let secure = format!("{}/_tunnel/connect", server.replace("https://", "wss://"));
+        let insecure = format!("{}/_tunnel/connect", server.replace("https://", "ws://"));
+        (secure, Some(insecure))
     } else if server.starts_with("http://") {
-        server.replace("http://", "ws://")
+        let insecure = format!("{}/_tunnel/connect", server.replace("http://", "ws://"));
+        (insecure, None)
     } else {
-        // Legacy: no scheme provided, default to wss://
-        format!("wss://{}", server)
+        // Legacy: no scheme provided, try wss:// with ws:// fallback
+        let secure = format!("wss://{}/_tunnel/connect", server);
+        let insecure = format!("ws://{}/_tunnel/connect", server);
+        (secure, Some(insecure))
     };
-    let ws_url = format!("{}/_tunnel/connect", ws_url);
 
     debug!("Connecting to {}", ws_url);
     
-    let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
+    let ws_stream = match tokio_tungstenite::connect_async(&ws_url).await {
+        Ok((stream, _)) => stream,
+        Err(e) => {
+            if let Some(fallback) = fallback_url {
+                debug!("Secure connection failed ({}), trying insecure fallback", e);
+                tokio_tungstenite::connect_async(&fallback)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?
+                    .0
+            } else {
+                return Err(anyhow::anyhow!("Failed to connect to server: {}", e));
+            }
+        }
+    };
 
     let (mut write, mut read) = ws_stream.split();
 

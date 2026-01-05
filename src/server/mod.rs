@@ -58,10 +58,7 @@ async fn idle_tunnel_cleanup_task(
 }
 
 pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
-    // Install the default crypto provider for rustls
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .expect("Failed to install rustls crypto provider");
+    // Crypto provider is already installed in main.rs
 
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
