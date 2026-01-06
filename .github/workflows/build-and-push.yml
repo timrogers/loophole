@@ -26,11 +26,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prepare image name
+        id: prep
+        shell: bash
+        run: |
+          IMAGE_NAME="${REGISTRY}/${GITHUB_REPOSITORY,,}"
+          echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ lower(github.repository) }}
+          images: ${{ steps.prep.outputs.image }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -39,6 +46,6 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ lower(github.repository) }}:latest
-            ${{ env.REGISTRY }}/${{ lower(github.repository) }}:${{ github.sha }}
+            ${{ steps.prep.outputs.image }}:latest
+            ${{ steps.prep.outputs.image }}:${{ github.sha }}
           labels: ${{ steps.meta.outputs.labels }}
