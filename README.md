@@ -71,15 +71,69 @@ sudo cp target/release/loophole /usr/local/bin/
 
 ### Docker
 
-```bash
-# Server
-docker build -t loophole .
-docker run -v /path/to/config:/etc/loophole -p 80:80 -p 443:443 loophole server
+The server can be configured entirely via environment variables, making it ideal for Docker/Kubernetes deployments.
 
-# Client
-docker build -f Dockerfile.client -t loophole-client .
-docker run loophole-client expose --server https://tunnel.example.com --token tk_xxx --subdomain myapp --port 3000
+```bash
+# Build the image
+docker build -t loophole .
+
+# Run with HTTPS (Let's Encrypt)
+docker run -d \
+  -e LOOPHOLE_DOMAIN=tunnel.example.com \
+  -e LOOPHOLE_TOKENS=tk_client1,tk_client2 \
+  -e LOOPHOLE_ACME_EMAIL=admin@example.com \
+  -v loophole-certs:/var/lib/loophole/certs \
+  -p 80:80 -p 443:443 \
+  loophole
 ```
+
+#### Docker Compose
+
+```yaml
+services:
+  loophole:
+    build: .
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      LOOPHOLE_DOMAIN: tunnel.example.com
+      LOOPHOLE_TOKENS: tk_client1,tk_client2
+      LOOPHOLE_ACME_EMAIL: admin@example.com
+    volumes:
+      - loophole-certs:/var/lib/loophole/certs
+
+volumes:
+  loophole-certs:
+```
+
+#### Environment Variables
+
+| Variable | Required | Description | Default |
+|----------|----------|-------------|---------|
+| `LOOPHOLE_DOMAIN` | Yes | Base domain for tunnels | - |
+| `LOOPHOLE_TOKENS` | Yes | Comma-separated client tokens | - |
+| `LOOPHOLE_ACME_EMAIL` | Yes | Let's Encrypt email | - |
+| `LOOPHOLE_ADMIN_TOKENS` | No | Comma-separated admin tokens | - |
+| `LOOPHOLE_ACME_STAGING` | No | Use Let's Encrypt staging | `false` |
+| `LOOPHOLE_HTTP_PORT` | No | HTTP port | `80` |
+| `LOOPHOLE_HTTPS_PORT` | No | HTTPS port | `443` |
+| `LOOPHOLE_CERTS_DIR` | No | Certificate storage path | `/var/lib/loophole/certs` |
+| `LOOPHOLE_REQUEST_TIMEOUT_SECS` | No | Request timeout | `30` |
+| `LOOPHOLE_IDLE_TUNNEL_TIMEOUT_SECS` | No | Idle tunnel timeout | `3600` |
+
+#### HTTP-only Mode (Advanced)
+
+For development or behind a reverse proxy, you can run without HTTPS by omitting `LOOPHOLE_ACME_EMAIL`:
+
+```bash
+docker run -d \
+  -e LOOPHOLE_DOMAIN=localhost \
+  -e LOOPHOLE_TOKENS=tk_dev \
+  -p 80:80 \
+  loophole
+```
+| `LOOPHOLE_IDLE_TUNNEL_TIMEOUT_SECS` | No | Idle tunnel timeout | `3600` |
 
 ## CLI Reference
 

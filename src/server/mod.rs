@@ -63,9 +63,14 @@ pub async fn run(config_path: &str, log_level: Level) -> Result<()> {
     let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    // Load config
-    let config = Config::load(config_path)?;
-    info!("Loaded configuration from {}", config_path);
+    // Load config from file or environment variables
+    let config = Config::load_or_from_env(Some(config_path))?;
+    
+    if std::env::var(config::env::DOMAIN).is_ok() {
+        info!("Loaded configuration from environment variables");
+    } else {
+        info!("Loaded configuration from {}", config_path);
+    }
     info!("Domain: {}", config.server.domain);
     info!("HTTP port: {}", config.server.http_port);
 
