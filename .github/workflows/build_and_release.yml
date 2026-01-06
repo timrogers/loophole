@@ -60,7 +60,7 @@ jobs:
       - name: Sanitise Git ref for use in filenames
         id: sanitise_ref
         shell: bash
-        run: echo "value=${{ replace(github.ref_name, '/', '_') }}" >> "$GITHUB_OUTPUT"
+        run: echo "value=${GITHUB_REF_NAME//\//_}" >> "$GITHUB_OUTPUT"
       - name: Rename Windows binary to use structured filename
         run: |
           cp target/${{ matrix.job.target }}/release/loophole.exe loophole_${{ steps.sanitise_ref.outputs.value }}_${{ matrix.job.binary_name }}
@@ -113,7 +113,7 @@ jobs:
       - name: Sanitise Git ref for use in filenames
         id: sanitise_ref
         shell: bash
-        run: echo "value=${{ replace(github.ref_name, '/', '_') }}" >> "$GITHUB_OUTPUT"
+        run: echo "value=${GITHUB_REF_NAME//\//_}" >> "$GITHUB_OUTPUT"
       - name: Download macOS amd64 binary
         uses: actions/download-artifact@v7
         with:
@@ -185,7 +185,7 @@ jobs:
       - name: Sanitise Git ref for use in filenames
         id: sanitise_ref
         shell: bash
-        run: echo "value=${{ replace(github.ref_name, '/', '_') }}" >> "$GITHUB_OUTPUT"
+        run: echo "value=${GITHUB_REF_NAME//\//_}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v7
         with:
           name: loophole_${{ steps.sanitise_ref.outputs.value }}_linux-amd64
