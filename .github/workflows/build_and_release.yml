@@ -2,6 +2,10 @@ name: Build, test and release
 
 on: push
 
+permissions:
+  contents: read
+
+
 jobs:
   build:
     name: Build and test
@@ -171,6 +175,8 @@ jobs:
   create_github_release:
     name: Create release with binary assets
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs:
       - build
       - create_and_sign_macos_universal_binary
