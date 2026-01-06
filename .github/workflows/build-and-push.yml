@@ -31,7 +31,8 @@ jobs:
         id: prep
         shell: bash
         run: |
-          IMAGE_NAME="${REGISTRY}/${GITHUB_REPOSITORY,,}" # Convert to lowercase for GHCR compatibility using bash parameter expansion
+          # Convert to lowercase for GHCR compatibility using bash parameter expansion
+          IMAGE_NAME="${REGISTRY}/${GITHUB_REPOSITORY,,}"
           echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Extract Docker metadata
