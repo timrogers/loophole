@@ -2,6 +2,7 @@ name: Build and publish server image
 
 on:
   push:
+    branches: ["main"]
 
 env:
   REGISTRY: ghcr.io
@@ -38,6 +39,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.prep.outputs.image }}
+          tags: |
+            type=raw,value=latest
+            type=sha
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -45,7 +49,5 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          tags: |
-            ${{ steps.prep.outputs.image }}:latest
-            ${{ steps.prep.outputs.image }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
