@@ -9,14 +9,10 @@ WORKDIR /app
 # Copy manifests first for better caching
 COPY Cargo.toml Cargo.lock ./
 
-# Create dummy source files for dependency caching
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+# Pre-fetch dependencies for caching
+RUN cargo fetch
 
-# Pre-build dependencies
-RUN cargo build --release --bin loophole
-
-# Remove dummy sources and copy actual project files
-RUN rm -rf src
+# Copy actual project files
 COPY src ./src
 
 # Build the actual binary
