@@ -47,7 +47,9 @@ jobs:
         if: runner.os == 'Linux'
       - uses: actions/checkout@v6
       - name: Use Rust 1.92.0 with target ${{ matrix.job.target }}
-        run: rustup override set 1.92.0-${{ matrix.job.target }}
+        run: |
+          rustup override set 1.92.0
+          rustup target add ${{ matrix.job.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build in release mode
         run: cargo build --release --target=${{ matrix.job.target }}
@@ -61,8 +63,8 @@ jobs:
         if: runner.os == 'Windows'
       - name: Rename Unix binary to use structured filename
         run: |
-          rm target/${{ matrix.job.target }}/release/loophole.d
-          cp target/${{ matrix.job.target }}/release/loophole* loophole_${{ steps.sanitise_ref.outputs.value }}_${{ matrix.job.binary_name }}
+          rm -f target/${{ matrix.job.target }}/release/loophole.d
+          cp target/${{ matrix.job.target }}/release/loophole loophole_${{ steps.sanitise_ref.outputs.value }}_${{ matrix.job.binary_name }}
         if: runner.os != 'Windows'
       - name: Write Apple signing key to a file (macOS only)
         env:
