@@ -13,7 +13,7 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Pre-build dependencies
-RUN cargo build --release --bin loophole 2>/dev/null || true
+RUN cargo build --release --bin loophole
 
 # Remove dummy sources and copy actual project files
 RUN rm -rf src
